@@ -324,6 +324,9 @@ public:
     PartialResult WARN_UNUSED_RETURN addUnreachable();
     B3::PatchpointValue* WARN_UNUSED_RETURN emitCallPatchpoint(BasicBlock*, const Signature&, const ResultList& results, const Vector<TypedTmp>& args, Vector<ConstrainedTmp>&& extraArgs = { });
 
+    // Saturated conversations
+    PartialResult WARN_UNUSED_RETURN addI32TruncSatSF32(ExpressionType arg, ExpressionType& result);
+
     PartialResult addShift(Type, B3::Air::Opcode, ExpressionType value, ExpressionType shift, ExpressionType& result);
     PartialResult addIntegerSub(B3::Air::Opcode, ExpressionType lhs, ExpressionType rhs, ExpressionType& result);
     PartialResult addFloatingPointAbs(B3::Air::Opcode, ExpressionType value, ExpressionType& result);
@@ -3956,6 +3959,33 @@ auto AirIRGenerator::addOp<OpType::I64TruncUF32>(ExpressionType arg, ExpressionT
     result = g64();
     emitPatchpoint(m_currentBlock, patchpoint, Vector<TypedTmp, 8> { result }, WTFMove(args));
 
+    return { };
+}
+
+auto AirIRGenerator::addI32TruncSatSF32(ExpressionType arg, ExpressionType& result) -> PartialResult
+{
+//    auto max = addConstant(Type::F32, bitwise_cast<uint32_t>(-static_cast<float>(std::numeric_limits<int32_t>::min())));
+//    auto min = addConstant(Type::F32, bitwise_cast<uint32_t>(static_cast<float>(std::numeric_limits<int32_t>::min())));
+
+//    auto temp1 = g32();
+//    auto temp2 = g32();
+//    append(CompareFloat, Arg::doubleCond(MacroAssembler::DoubleLessThanOrUnordered), arg, min, temp1);
+//    append(CompareFloat, Arg::doubleCond(MacroAssembler::DoubleGreaterThanOrEqualOrUnordered), arg, max, temp2);
+//    append(Or32, temp1, temp2);
+
+//    emitCheck([&] {
+//        return Inst(BranchTest32, nullptr, Arg::resCond(MacroAssembler::NonZero), temp2, temp2);
+//    }, [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
+//        this->emitThrowException(jit, ExceptionType::OutOfBoundsTrunc);
+//    });
+
+    auto* patchpoint = addPatchpoint(B3::Int32);
+    patchpoint->effects = B3::Effects::none();
+    patchpoint->setGenerator([=] (CCallHelpers& jit, const B3::StackmapGenerationParams& params) {
+        jit.truncateFloatToInt32(params[1].fpr(), params[0].gpr());
+    });
+    result = g32();
+    emitPatchpoint(patchpoint, result, arg);
     return { };
 }
 

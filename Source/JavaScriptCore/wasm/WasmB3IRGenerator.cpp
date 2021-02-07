@@ -285,6 +285,9 @@ public:
     PartialResult WARN_UNUSED_RETURN addUnreachable();
     B3::Value* createCallPatchpoint(BasicBlock*, Origin, const Signature&, Vector<ExpressionType>& args, const ScopedLambda<void(PatchpointValue*)>& patchpointFunctor);
 
+    // Saturated conversations
+    PartialResult WARN_UNUSED_RETURN addI32TruncSatSF32(ExpressionType arg, ExpressionType& result);
+
     void dump(const ControlStack&, const Stack* expressionStack);
     void setParser(FunctionParser<B3IRGenerator>* parser) { m_parser = parser; };
     void didFinishParsingLocals() { }
@@ -3032,6 +3035,28 @@ auto B3IRGenerator::addOp<OpType::I64TruncUF32>(ExpressionType arg, ExpressionTy
             constant = params[2].fpr();
         }
         jit.truncateFloatToUint64(params[1].fpr(), params[0].gpr(), scratch, constant);
+    });
+    patchpoint->effects = Effects::none();
+    result = patchpoint;
+    return { };
+}
+
+auto B3IRGenerator::addI32TruncSatSF32(ExpressionType arg, ExpressionType& result) -> PartialResult
+{
+//    Value* max = constant(Float, bitwise_cast<uint32_t>(-static_cast<float>(std::numeric_limits<int32_t>::min())));
+//    Value* min = constant(Float, bitwise_cast<uint32_t>(static_cast<float>(std::numeric_limits<int32_t>::min())));
+//    Value* outOfBounds = m_currentBlock->appendNew<Value>(m_proc, BitAnd, origin(),
+//        m_currentBlock->appendNew<Value>(m_proc, LessThan, origin(), arg, max),
+//        m_currentBlock->appendNew<Value>(m_proc, GreaterEqual, origin(), arg, min));
+//    outOfBounds = m_currentBlock->appendNew<Value>(m_proc, Equal, origin(), outOfBounds, constant(Int32, 0));
+//    CheckValue* trap = m_currentBlock->appendNew<CheckValue>(m_proc, Check, origin(), outOfBounds);
+//    trap->setGenerator([=] (CCallHelpers& jit, const StackmapGenerationParams&) {
+//        this->emitExceptionCheck(jit, ExceptionType::OutOfBoundsTrunc);
+//    });
+    PatchpointValue* patchpoint = m_currentBlock->appendNew<PatchpointValue>(m_proc, Int32, origin());
+    patchpoint->append(arg, ValueRep::SomeRegister);
+    patchpoint->setGenerator([=] (CCallHelpers& jit, const StackmapGenerationParams& params) {
+        jit.truncateFloatToInt32(params[1].fpr(), params[0].gpr());
     });
     patchpoint->effects = Effects::none();
     result = patchpoint;

@@ -252,6 +252,9 @@ public:
     PartialResult WARN_UNUSED_RETURN addCallIndirect(unsigned tableIndex, const Signature&, Vector<ExpressionType>& args, ResultList& results);
     PartialResult WARN_UNUSED_RETURN addUnreachable();
 
+    // Saturated conversations
+    PartialResult WARN_UNUSED_RETURN addI32TruncSatSF32(ExpressionType arg, ExpressionType& result);
+
     void didFinishParsingLocals();
 
     void setParser(FunctionParser<LLIntGenerator>* parser) { m_parser = parser; };
@@ -1171,6 +1174,13 @@ auto LLIntGenerator::addTableCopy(unsigned dstTableIndex, unsigned srcTableIndex
 auto LLIntGenerator::addUnreachable() -> PartialResult
 {
     WasmUnreachable::emit(this);
+
+    return { };
+}
+
+auto LLIntGenerator::addI32TruncSatSF32(ExpressionType arg, ExpressionType& result) -> PartialResult
+{
+    WasmI32TruncSatSF32::emit(this, arg, result);
 
     return { };
 }

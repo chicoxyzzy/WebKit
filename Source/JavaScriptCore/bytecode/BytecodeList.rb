@@ -1804,4 +1804,10 @@ op :atomic_fence,
     args: {
     }
 
+op :i32_trunc_sat_s_f32,
+    args: {
+        dst: VirtualRegister,
+        operand: VirtualRegister,
+    }
+
 end_section :Wasm

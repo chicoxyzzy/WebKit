@@ -79,7 +79,6 @@ def opcodeWithTypesMacroizer(filter):
         return [cppType(type) for type in op["parameter"] + op["return"]]
     return opcodeMacroizer(filter, modifier=modifier)
 
-
 def memoryLoadMacroizer():
     def modifier(op):
         return [cppType(op["return"][0])]
@@ -111,7 +110,7 @@ def atomicBinaryRMWMacroizer():
 
 
 defines = ["#define FOR_EACH_WASM_SPECIAL_OP(macro)"]
-defines.extend([op for op in opcodeMacroizer(lambda op: not (isUnary(op) or isBinary(op) or op["category"] == "control" or op["category"] == "memory" or op["category"] == "exttable"or isAtomic(op)))])
+defines.extend([op for op in opcodeMacroizer(lambda op: not (isUnary(op) or isBinary(op) or op["category"] == "control" or op["category"] == "memory" or op["category"] == "exttable" or isAtomic(op)))])
 defines.append("\n\n#define FOR_EACH_WASM_CONTROL_FLOW_OP(macro)")
 defines.extend([op for op in opcodeMacroizer(lambda op: op["category"] == "control")])
 defines.append("\n\n#define FOR_EACH_WASM_SIMPLE_UNARY_OP(macro)")

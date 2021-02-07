@@ -1364,6 +1364,24 @@ wasmOp(i64_trunc_u_f64, WasmI64TruncUF64, macro (ctx)
     throwException(OutOfBoundsTrunc)
 end)
 
+wasmOp(i32_trunc_sat_s_f32, WasmI32TruncSatSF32, macro (ctx)
+    mloadf(ctx, m_operand, ft0)
+
+#    move 0xcf000000, t0 # INT32_MIN (Note that INT32_MIN - 1.0 in float is the same as INT32_MIN in float).
+#    fi2f t0, ft1
+#    bfltun ft0, ft1, .outOfBoundsTrunc
+
+#    move 0x4f000000, t0 # -INT32_MIN
+#    fi2f t0, ft1
+#    bfgtequn ft0, ft1, .outOfBoundsTrunc
+
+    truncatef2is ft0, t0
+    returni(ctx, t0)
+
+#.outOfBoundsTrunc:
+#    throwException(OutOfBoundsTrunc)
+end)
+
 wasmOp(f32_convert_u_i64, WasmF32ConvertUI64, macro (ctx)
     mloadq(ctx, m_operand, t0)
     if X86_64

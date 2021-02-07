@@ -1,3 +1,25 @@
+2021-02-07  Sergey Rubanov  <chi187@gmail.com>
+
+        WebAssembly: implement non-trapping float to int conversion
+        https://bugs.webkit.org/show_bug.cgi?id=173471
+
+        Reviewed by NOBODY (OOPS!).
+
+        * generator/Wasm.rb:
+        * llint/WebAssembly.asm:
+        * wasm/WasmAirIRGenerator.cpp:
+        (JSC::Wasm::AirIRGenerator::addOp<OpType::I32TruncSatSF32>):
+        * wasm/WasmB3IRGenerator.cpp:
+        (JSC::Wasm::B3IRGenerator::addOp<OpType::I32TruncSatSF32>):
+        * wasm/generateWasm.py:
+        (isExtConv):
+        * wasm/generateWasmOpsHeader.py:
+        (opcodeWithTypesMacroizer):
+        (extCodeMacroizer):
+        (extCodeMacroizer.modifier):
+        (ExtTableOpType):
+        * wasm/wasm.json:
+
 2021-02-07  Yusuke Suzuki  <ysuzuki@apple.com>
 
         [JSC] Replace toInteger with toIntegerOrInfinity
