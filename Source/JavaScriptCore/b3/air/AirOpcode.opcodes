@@ -721,6 +721,15 @@ SignExtend16To32 U:G:16, ZD:G:32
     x86: Addr, Tmp as load16SignedExtendTo32
     x86: Index, Tmp as load16SignedExtendTo32
 
+SignExtend8To64 U:G:8, D:G:64
+    Tmp, Tmp
+
+SignExtend16To64 U:G:16, D:G:64
+    Tmp, Tmp
+
+SignExtend32To64 U:G:16, D:G:64
+    Tmp, Tmp
+
 MoveFloat U:F:32, D:F:32
     Tmp, Tmp as moveDouble
     Addr, Tmp as loadFloat

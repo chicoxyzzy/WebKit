@@ -263,6 +263,9 @@ public:
                 VALIDATE(value->type() == Int32, ("At ", *value));
                 break;
             case SExt32:
+            case SExt8To64:
+            case SExt16To64:
+            case SExt32To64:
             case ZExt32:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() == 1, ("At ", *value));

@@ -120,6 +120,9 @@ enum Opcode : uint8_t {
     SExt16,
     // Takes Int32 and returns Int64:
     SExt32,
+    SExt8To64,
+    SExt16To64,
+    SExt32To64,
     ZExt32,
     // Does a bitwise truncation of Int64->Int32 and Double->Float:
     Trunc,

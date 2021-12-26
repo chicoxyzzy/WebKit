@@ -1292,7 +1292,12 @@ public:
     {
         m_assembler.movsbl_rr(src, dest);
     }
-    
+
+    void signExtend8To64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.movsbq_rr(src, dest);
+    }
+
     void load16(Address address, RegisterID dest)
     {
         m_assembler.movzwl_mr(address.offset, address.base, dest);
@@ -1339,7 +1344,12 @@ public:
     {
         m_assembler.movswl_rr(src, dest);
     }
-    
+
+    void signExtend16To64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.movswq_rr(src, dest);
+    }
+
     DataLabel32 store32WithAddressOffsetPatch(RegisterID src, Address address)
     {
         padBeforePatch();
@@ -2307,6 +2317,11 @@ public:
         m_assembler.movsxd_rr(src, dest);
     }
 
+    void signExtend32To64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.movsxd_rr(src, dest);
+    }
+
     void zeroExtend32ToWord(RegisterID src, RegisterID dest)
     {
         m_assembler.movl_rr(src, dest);
@@ -2391,6 +2406,11 @@ public:
     }
 
     void signExtend32ToPtr(RegisterID src, RegisterID dest)
+    {
+        move(src, dest);
+    }
+
+    void signExtend32To64(RegisterID src, RegisterID dest)
     {
         move(src, dest);
     }

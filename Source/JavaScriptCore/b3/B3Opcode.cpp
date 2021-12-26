@@ -213,6 +213,15 @@ void printInternal(PrintStream& out, Opcode opcode)
     case SExt32:
         out.print("SExt32");
         return;
+    case SExt8To64:
+        out.print("SExt8To64");
+        return;
+    case SExt16To64:
+        out.print("SExt16To64");
+        return;
+    case SExt32To64:
+        out.print("SExt32To64");
+        return;
     case ZExt32:
         out.print("ZExt32");
         return;

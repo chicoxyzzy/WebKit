@@ -1815,6 +1815,11 @@ public:
         m_assembler.sxth<32>(dest, src);
     }
 
+    void signExtend16To64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.sxth<64>(dest, src);
+    }
+
     void load8(Address address, RegisterID dest)
     {
         if (tryLoadWithOffset<8>(dest, address.base, address.offset))
@@ -1890,6 +1895,11 @@ public:
     void signExtend8To32(RegisterID src, RegisterID dest)
     {
         m_assembler.sxtb<32>(dest, src);
+    }
+
+    void signExtend8To64(RegisterID src, RegisterID dest)
+    {
+        m_assembler.sxtb<64>(dest, src);
     }
 
     void store64(RegisterID src, Address address)
@@ -3001,6 +3011,11 @@ public:
     }
 
     void signExtend32ToPtr(RegisterID src, RegisterID dest)
+    {
+        m_assembler.sxtw(dest, src);
+    }
+
+    void signExtend32To64(RegisterID src, RegisterID dest)
     {
         m_assembler.sxtw(dest, src);
     }

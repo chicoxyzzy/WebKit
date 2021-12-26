@@ -73,6 +73,9 @@ Value* ValueKey::materialize(Procedure& proc, Origin origin) const
     case SExt8:
     case SExt16:
     case SExt32:
+    case SExt8To64:
+    case SExt16To64:
+    case SExt32To64:
     case ZExt32:
     case Clz:
     case Trunc:

@@ -1763,6 +1763,20 @@ private:
                 break;
             }
 
+            // Turn this: SExt32(SExt8(value))
+            // Into this: SExt8To64(value)
+            if (m_value->child(0)->opcode() == SExt8) {
+                replaceWithNew<Value>(SExt8To64, m_value->origin(), m_value->child(0)->child(0));
+                break;
+            }
+
+            // Turn this: SExt32(SExt16(value))
+            // Into this: SExt16To64(value)
+            if (m_value->child(0)->opcode() == SExt16) {
+                replaceWithNew<Value>(SExt16To64, m_value->origin(), m_value->child(0)->child(0));
+                break;
+            }
+
             // Turn this: SExt32(BitAnd(input, mask)) where (mask & 0x80000000) == 0
             // Into this: ZExt32(BitAnd(input, mask))
             if (m_value->child(0)->opcode() == BitAnd && m_value->child(0)->child(1)->hasInt32()
@@ -2759,6 +2773,9 @@ private:
         case SExt8:
         case SExt16:
         case SExt32:
+        case SExt8To64:
+        case SExt16To64:
+        case SExt32To64:
             return rangeFor(value->child(0), timeToLive - 1);
 
         case ZExt32:

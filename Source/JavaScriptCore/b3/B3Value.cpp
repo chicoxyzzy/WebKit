@@ -557,6 +557,9 @@ Effects Value::effects() const
     case SExt8:
     case SExt16:
     case SExt32:
+    case SExt8To64:
+    case SExt16To64:
+    case SExt32To64:
     case ZExt32:
     case Trunc:
     case IToD:
@@ -698,6 +701,9 @@ ValueKey Value::key() const
     case SExt8:
     case SExt16:
     case SExt32:
+    case SExt8To64:
+    case SExt16To64:
+    case SExt32To64:
     case ZExt32:
     case Clz:
     case Trunc:
@@ -853,6 +859,9 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
     case Trunc:
         return firstChild->type() == Int64 ? Int32 : Float;
     case SExt32:
+    case SExt8To64:
+    case SExt16To64:
+    case SExt32To64:
     case ZExt32:
         return Int64;
     case FloatToDouble:
