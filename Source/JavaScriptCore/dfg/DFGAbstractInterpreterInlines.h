@@ -5716,7 +5716,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
 
         ASSERT(signature->returnCount() == 1);
         auto type = signature->returnType(0);
-        switch (type.kind) {
+        switch (type.kind()) {
         case Wasm::TypeKind::I32: {
             setNonCellTypeForNode(node, SpecInt32Only);
             break;

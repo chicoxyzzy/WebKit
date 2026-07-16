@@ -237,6 +237,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #include <cstdint>
 #include <wtf/PrintStream.h>
+#include <wtf/TaggedPtr.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace JSC {
@@ -266,24 +267,222 @@ enum class PackedType: int8_t {
 
 using TypeIndex = uintptr_t;
 
-inline bool typeIndexIsType(TypeIndex index)
+#define FOR_EACH_WASM_ABSTRACT_HEAP_TYPE_INDEX_TAG(macro) \\
+    macro(Noexnref) \\
+    macro(Nofuncref) \\
+    macro(Noexternref) \\
+    macro(Noneref) \\
+    macro(Funcref) \\
+    macro(Externref) \\
+    macro(Anyref) \\
+    macro(Eqref) \\
+    macro(I31ref) \\
+    macro(Structref) \\
+    macro(Arrayref) \\
+    macro(Exnref)
+
+enum class TypeIndexTag : uint8_t {
+    Concrete = 0,
+#define CREATE_TYPE_INDEX_TAG(name) name,
+    FOR_EACH_WASM_ABSTRACT_HEAP_TYPE_INDEX_TAG(CREATE_TYPE_INDEX_TAG)
+#undef CREATE_TYPE_INDEX_TAG
+    NumberOfTags,
+};
+
+// EnumTaggingTraits uses 4 high bits on ADDRESS64.
+static_assert(static_cast<unsigned>(TypeIndexTag::NumberOfTags) <= 16);
+
+// Stand-in for EnumTaggingTraits (needs complete type + alignof). alignas(16) matches RTT.
+struct alignas(16) TypeIndexTagStorage { };
+using TypeIndexTaggingTraits = EnumTaggingTraits<TypeIndexTagStorage, TypeIndexTag, TypeIndexTag::Concrete>;
+
+inline TypeIndexTag typeKindToTypeIndexTag(TypeKind kind)
 {
-    auto signedIndex = static_cast<std::make_signed<TypeIndex>::type>(index);
-    return (signedIndex < 0) && (signedIndex > minTypeValue);
+    switch (kind) {
+#define CREATE_CASE(name) case TypeKind::name: return TypeIndexTag::name;
+    FOR_EACH_WASM_ABSTRACT_HEAP_TYPE_INDEX_TAG(CREATE_CASE)
+#undef CREATE_CASE
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        return TypeIndexTag::Concrete;
+    }
 }
 
+inline TypeKind typeIndexTagToTypeKind(TypeIndexTag tag)
+{
+    switch (tag) {
+#define CREATE_CASE(name) case TypeIndexTag::name: return TypeKind::name;
+    FOR_EACH_WASM_ABSTRACT_HEAP_TYPE_INDEX_TAG(CREATE_CASE)
+#undef CREATE_CASE
+    case TypeIndexTag::Concrete:
+    case TypeIndexTag::NumberOfTags:
+        RELEASE_ASSERT_NOT_REACHED();
+        return TypeKind::Void;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+    return TypeKind::Void;
+}
+
+inline bool isAbstractHeapTypeKind(TypeKind kind)
+{
+    switch (kind) {
+#define CREATE_CASE(name) case TypeKind::name: return true;
+    FOR_EACH_WASM_ABSTRACT_HEAP_TYPE_INDEX_TAG(CREATE_CASE)
+#undef CREATE_CASE
+    default:
+        return false;
+    }
+}
+
+inline TypeIndex typeIndexFromTypeKind(TypeKind kind)
+{
+    RELEASE_ASSERT(isAbstractHeapTypeKind(kind));
+#if CPU(ADDRESS64)
+    return TypeIndexTaggingTraits::wrap(nullptr, typeKindToTypeIndexTag(kind));
+#else
+    return static_cast<TypeIndex>(kind);
+#endif
+}
+
+inline bool isAbstractTypeIndex(TypeIndex index)
+{
+#if CPU(ADDRESS64)
+    return TypeIndexTaggingTraits::unwrapTag(index) != TypeIndexTag::Concrete;
+#else
+    auto signedIndex = static_cast<std::make_signed_t<TypeIndex>>(index);
+    return (signedIndex < 0) && (signedIndex > minTypeValue);
+#endif
+}
+
+inline TypeKind typeIndexAsTypeKind(TypeIndex index)
+{
+    ASSERT(isAbstractTypeIndex(index));
+#if CPU(ADDRESS64)
+    return typeIndexTagToTypeKind(TypeIndexTaggingTraits::unwrapTag(index));
+#else
+    return static_cast<TypeKind>(index);
+#endif
+}
+
+// ADDRESS64: one word. [tag:8 | payload:56]
+//   0 / 1 = ConcreteRef / ConcreteRefNull + TypeIndex
+//   bare TypeKind as tag, payload 0
+//   Ref/RefNull as tag + TypeIndexTag payload for abstract refs
+// (TypeKind values are negative, so as uint8_t tags they do not collide with 0/1.)
 struct Type {
-    TypeKind kind;
-    TypeIndex index;
+#if CPU(ADDRESS64)
+    static constexpr unsigned typeTagShift = 56;
+    static constexpr uintptr_t typePayloadMask = (uintptr_t(1) << typeTagShift) - 1;
+    static constexpr uintptr_t concreteRefTag = 0;
+    static constexpr uintptr_t concreteRefNullTag = 1;
+
+    static constexpr uintptr_t bareKindBits(TypeKind typeKind)
+    {
+        return static_cast<uintptr_t>(static_cast<uint8_t>(static_cast<int8_t>(typeKind))) << typeTagShift;
+    }
+
+    // Zero bits would decode as ConcreteRef; default is Void.
+    uintptr_t m_bits { bareKindBits(TypeKind::Void) };
+
+    constexpr Type() = default;
+
+    Type(TypeKind typeKind, TypeIndex typeIndex = 0)
+    {
+        set(typeKind, typeIndex);
+    }
+
+    constexpr explicit Type(uintptr_t bits)
+        : m_bits(bits)
+    {
+    }
+
+    static constexpr Type fromBareKind(TypeKind typeKind)
+    {
+        if (typeKind == TypeKind::Ref)
+            return Type(concreteRefTag << typeTagShift);
+        if (typeKind == TypeKind::RefNull)
+            return Type(concreteRefNullTag << typeTagShift);
+        return Type(bareKindBits(typeKind));
+    }
+
+    void set(TypeKind typeKind, TypeIndex typeIndex)
+    {
+        if (typeKind == TypeKind::Ref || typeKind == TypeKind::RefNull) {
+            if (isAbstractTypeIndex(typeIndex)) {
+                TypeIndexTag abstractTag = typeKindToTypeIndexTag(typeIndexAsTypeKind(typeIndex));
+                ASSERT(abstractTag != TypeIndexTag::Concrete);
+                m_bits = static_cast<uintptr_t>(abstractTag)
+                    | bareKindBits(typeKind);
+                return;
+            }
+            uintptr_t tag = typeKind == TypeKind::RefNull ? concreteRefNullTag : concreteRefTag;
+            ASSERT(!(static_cast<uintptr_t>(typeIndex) & ~typePayloadMask));
+            m_bits = (static_cast<uintptr_t>(typeIndex) & typePayloadMask) | (tag << typeTagShift);
+            return;
+        }
+        ASSERT(!typeIndex);
+        m_bits = bareKindBits(typeKind);
+    }
+
+    TypeKind kind() const
+    {
+        uintptr_t tag = m_bits >> typeTagShift;
+        if (tag == concreteRefTag)
+            return TypeKind::Ref;
+        if (tag == concreteRefNullTag)
+            return TypeKind::RefNull;
+        return static_cast<TypeKind>(static_cast<int8_t>(static_cast<uint8_t>(tag)));
+    }
+
+    TypeIndex index() const
+    {
+        uintptr_t tag = m_bits >> typeTagShift;
+        uintptr_t payload = m_bits & typePayloadMask;
+        if (tag == concreteRefTag || tag == concreteRefNullTag)
+            return static_cast<TypeIndex>(payload);
+        if (tag == static_cast<uintptr_t>(static_cast<uint8_t>(static_cast<int8_t>(TypeKind::Ref)))
+            || tag == static_cast<uintptr_t>(static_cast<uint8_t>(static_cast<int8_t>(TypeKind::RefNull))))
+            return typeIndexFromTypeKind(typeIndexTagToTypeKind(static_cast<TypeIndexTag>(payload)));
+        return 0;
+    }
+
+    bool operator==(const Type& other) const { return m_bits == other.m_bits; }
+
+    static_assert(sizeof(uintptr_t) == 8);
+#define ASSERT_TYPE_KIND_TAG_OK(name, id, ...) \
+    static_assert(static_cast<uint8_t>(static_cast<int8_t>(TypeKind::name)) > concreteRefNullTag);
+    FOR_EACH_WASM_TYPE(ASSERT_TYPE_KIND_TAG_OK)
+#undef ASSERT_TYPE_KIND_TAG_OK
+#else
+    TypeKind m_kind { TypeKind::Void };
+    TypeIndex m_index { 0 };
+
+    constexpr Type() = default;
+    Type(TypeKind typeKind, TypeIndex typeIndex = 0)
+        : m_kind(typeKind)
+        , m_index(typeIndex)
+    {
+    }
+
+    TypeKind kind() const { return m_kind; }
+    TypeIndex index() const { return m_index; }
+
+    void set(TypeKind typeKind, TypeIndex typeIndex)
+    {
+        m_kind = typeKind;
+        m_index = typeIndex;
+    }
 
     bool operator==(const Type& other) const
     {
-        return other.kind == kind && other.index == index;
+        return other.m_kind == m_kind && other.m_index == m_index;
     }
+#endif
 
     bool isNullable() const
     {
-        return kind == TypeKind::RefNull || kind == TypeKind::Externref || kind == TypeKind::Funcref;
+        TypeKind typeKind = kind();
+        return typeKind == TypeKind::RefNull || typeKind == TypeKind::Externref || typeKind == TypeKind::Funcref;
     }
 
     // Saying conservatively.
@@ -295,13 +494,13 @@ struct Type {
 
     // Use Wasm::isFuncref and Wasm::isExternref instead because they check against all kinds of representations of function references and external references.
 
-    #define CREATE_PREDICATE(name, ...) bool is ## name() const { return kind == TypeKind::name; }
+#define CREATE_PREDICATE(name, ...) bool is ## name() const { return kind() == TypeKind::name; }
     FOR_EACH_WASM_TYPE_EXCEPT_FUNCREF_AND_EXTERNREF(CREATE_PREDICATE)
-    #undef CREATE_PREDICATE
+#undef CREATE_PREDICATE
 
     bool isGP64() const
     {
-        switch(kind) {
+        switch (kind()) {
         case TypeKind::I64:
         case TypeKind::Funcref:
         case TypeKind::Exnref:
@@ -315,10 +514,20 @@ struct Type {
     }
 };
 
+#if CPU(ADDRESS64)
+static_assert(sizeof(Type) == sizeof(void*));
+#endif
+
 namespace Types
 {
-#define CREATE_CONSTANT(name, id, ...) constexpr Type name = Type{TypeKind::name, 0u};
+#define CREATE_CONSTANT(name, id, ...) constexpr Type name = Type::fromBareKind(TypeKind::name);
+#if CPU(ADDRESS64)
 FOR_EACH_WASM_TYPE(CREATE_CONSTANT)
+#else
+#undef CREATE_CONSTANT
+#define CREATE_CONSTANT(name, id, ...) constexpr Type name = Type { TypeKind::name, 0u };
+FOR_EACH_WASM_TYPE(CREATE_CONSTANT)
+#endif
 #undef CREATE_CONSTANT
 #if USE(JSVALUE64)
 constexpr Type IPtr = I64;

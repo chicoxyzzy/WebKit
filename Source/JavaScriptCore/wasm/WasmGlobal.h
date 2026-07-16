@@ -99,7 +99,7 @@ public:
 private:
     Global(Wasm::Type type, Wasm::Mutability mutability, uint64_t initialValue)
         : m_type(type)
-        , m_typeRTT(TypeInformation::tryGetRTT(type.index))
+        , m_typeRTT(TypeInformation::tryGetRTT(type.index()))
         , m_mutability(mutability)
     {
         ASSERT(m_type != Types::V128);
@@ -108,7 +108,7 @@ private:
 
     Global(Wasm::Type type, Wasm::Mutability mutability, v128_t initialValue)
         : m_type(type)
-        , m_typeRTT(TypeInformation::tryGetRTT(type.index))
+        , m_typeRTT(TypeInformation::tryGetRTT(type.index()))
         , m_mutability(mutability)
     {
         ASSERT(m_type == Types::V128);

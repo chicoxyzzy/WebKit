@@ -4139,7 +4139,7 @@ private:
                 auto rtt = structNew->rtt();
                 int32_t toHeapType = cast->targetHeapType();
                 RefPtr targetRTT = cast->targetRTT();
-                if (!Wasm::typeIndexIsType(static_cast<Wasm::TypeIndex>(toHeapType))) {
+                if (Wasm::isTypeIndexHeapType(toHeapType)) {
                     if (rtt->isSubRTT(*targetRTT)) {
                         // shouldNegate can only be set on WasmRefTest.
                         ASSERT(!cast->shouldNegate());
@@ -4211,7 +4211,7 @@ private:
                 auto rtt = structNew->rtt();
                 int32_t toHeapType = cast->targetHeapType();
                 RefPtr targetRTT = cast->targetRTT();
-                if (!Wasm::typeIndexIsType(static_cast<Wasm::TypeIndex>(toHeapType))) {
+                if (Wasm::isTypeIndexHeapType(toHeapType)) {
                     const bool isSubtype = rtt->isSubRTT(*targetRTT);
                     replaceWithNewValue(m_proc.addIntConstant(m_value, cast->shouldNegate() ? !isSubtype : isSubtype));
                     break;
