@@ -234,7 +234,7 @@ static inline void prepareForTailCall(CCallHelpers& jit, const B3::StackmapGener
 // FIXME: In OMG and BBQ, emit restore frame creation on an out-of-line slow path
 // so the common case (same instance || restore frame exists) doesn't have to jump over
 // this code.
-inline void emitRestoreInstanceFrameIfNeeded(CCallHelpers& jit, GPRReg currentInstanceReg, Checked<int32_t> callerStackSize, Checked<int32_t> frameSize, Checked<int32_t> topSourceOffsetFromFP, GPRReg scratch1, GPRReg scratch2)
+inline void emitRestoreInstanceFrameIfNeeded(CCallHelpers& jit, GPRReg currentInstanceReg, Checked<int32_t> callerStackSize, Checked<int32_t> frameSize, Checked<int32_t> topSourceOffsetFromFP, GPRReg scratch1, GPRReg scratch2, GPRReg pairDest0, GPRReg pairDest1)
 {
 #if CPU(ARM64E)
     auto* restoreFrameReturnAddress = untagCodePtr<NativeToJITGatePtrTag>(g_jscConfig.llint.gateMap[static_cast<unsigned>(Gate::wasmRestoreFrame)]);
@@ -242,7 +242,11 @@ inline void emitRestoreInstanceFrameIfNeeded(CCallHelpers& jit, GPRReg currentIn
     auto* restoreFrameReturnAddress = untagCodePtr<CFunctionPtrTag>(wasm_restore_frame_return);
 #endif
     ASSERT(restoreFrameReturnAddress);
-    ASSERT(noOverlap(currentInstanceReg, scratch1, scratch2));
+#if CPU(ARM64)
+    ASSERT(noOverlap(currentInstanceReg, scratch1, scratch2, pairDest0, pairDest1, CCallHelpers::dataTempRegister, CCallHelpers::memoryTempRegister));
+#else
+    ASSERT(noOverlap(currentInstanceReg, scratch1, scratch2, pairDest0, pairDest1));
+#endif
     ASSERT(topSourceOffsetFromFP <= callerStackSize);
     ASSERT(isMultipleOf(stackAlignmentBytes(), topSourceOffsetFromFP));
     static constexpr unsigned restoreFrameSize = RestoreFrameCallee::restoreFrameSizeInBytes;
@@ -273,23 +277,23 @@ inline void emitRestoreInstanceFrameIfNeeded(CCallHelpers& jit, GPRReg currentIn
         });
 
         JIT_COMMENT(jit, "Copy loop start");
+        jit.addPtr(CCallHelpers::TrustedImm32(topSourceOffsetFromFP), GPRInfo::callFrameRegister, scratch2);
         auto loop = jit.label();
         {
-            auto scratch3 = jit.scratchRegister();
             DisallowMacroScratchRegisterUsage disallowScratch(jit);
 #if CPU(ARM64)
-            jit.loadPair64(CCallHelpers::PostIndexAddress(scratch1, 16), scratch2, scratch3);
-            jit.storePair64(scratch2, scratch3, CCallHelpers::Address(scratch1, -static_cast<int32_t>(restoreFrameSize) - 16));
+            constexpr int32_t pairStoreOffset = -static_cast<int32_t>(restoreFrameSize) - 16;
+            ASSERT(ARM64Assembler::isValidSTPImm<64>(pairStoreOffset));
+            jit.loadPair64(CCallHelpers::PostIndexAddress(scratch1, 16), pairDest0, pairDest1);
+            jit.storePair64(pairDest0, pairDest1, CCallHelpers::Address(scratch1, pairStoreOffset));
 #else
-            jit.loadPair64(scratch1, scratch2, scratch3);
-            jit.storePair64(scratch2, scratch3, CCallHelpers::Address(scratch1, -restoreFrameSize));
+            jit.loadPair64(scratch1, pairDest0, pairDest1);
+            jit.storePair64(pairDest0, pairDest1, CCallHelpers::Address(scratch1, -restoreFrameSize));
 #endif
         }
 #if !CPU(ARM64)
         jit.addPtr(CCallHelpers::TrustedImm32(16), scratch1);
 #endif
-        // FIXME: It'd be nice to use the address scratch on ARM64 to hold the end point.
-        jit.addPtr(CCallHelpers::TrustedImm32(topSourceOffsetFromFP), GPRInfo::callFrameRegister, scratch2);
         jit.branchPtr(CCallHelpers::Below, scratch1, scratch2).linkTo(loop, &jit);
     }
 

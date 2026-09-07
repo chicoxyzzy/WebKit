@@ -2074,17 +2074,21 @@ auto OMGIRGenerator::emitIndirectCall(Value* calleeInstance, Value* calleeCode, 
         patchpoint->append(calleeInstance, ValueRep::SomeRegister);
         // Cross-instance setup below reloads pinned registers before the tail-call shuffle consumes late inputs.
         patchpoint->clobberLate(RegisterSet::wasmPinnedRegisters());
-        // emitRestoreInstanceFrameIfNeeded needs two scratches. wasmBaseMemoryPointer is
-        // always pinned so B3 won't allocate it. wasmBoundsCheckingSizeRegister
-        // is only pinned in BoundsChecking mode, so in Signaling mode we need B3 to give us a
-        // scratch that avoids the inputs.
-        if (m_mode == MemoryMode::Signaling)
-            patchpoint->numGPScratchRegisters = 1;
+        // wasmBaseMemoryPointer is always pinned. wasmBoundsCheckingSizeRegister is only
+        // pinned in BoundsChecking, so Signaling needs B3 scratches for the end and both pair dests.
+        patchpoint->numGPScratchRegisters = m_mode == MemoryMode::Signaling ? 3 : 2;
         patchArgsIndex += m_proc.resultCount(patchpoint->type());
         Checked<int32_t> callerStackSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(wasmCallerInfoAsCallee.headerAndArgumentStackSizeInBytes);
         patchpoint->setGenerator([prepareForCall = prepareForCall, patchArgsIndex, callerStackSize = static_cast<int32_t>(callerStackSize), mode = m_mode](CCallHelpers& jit, const B3::StackmapGenerationParams& params) {
             GPRReg calleeInstanceGPR = params[patchArgsIndex + 1].gpr();
-            GPRReg scratch2 = mode == MemoryMode::Signaling ? params.gpScratch(0) : GPRInfo::wasmBoundsCheckingSizeRegister;
+            unsigned destScratch = 0;
+            GPRReg end = GPRInfo::wasmBoundsCheckingSizeRegister;
+            if (mode == MemoryMode::Signaling) {
+                end = params.gpScratch(0);
+                destScratch = 1;
+            }
+            GPRReg pairDest0 = params.gpScratch(destScratch);
+            GPRReg pairDest1 = params.gpScratch(destScratch + 1);
             auto sameInstance = jit.branchPtr(CCallHelpers::Equal, calleeInstanceGPR, GPRInfo::wasmContextInstancePointer);
             {
                 AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -2096,7 +2100,7 @@ auto OMGIRGenerator::emitIndirectCall(Value* calleeInstance, Value* calleeCode, 
                 for (const auto& entry : params.code().calleeSaveRegisterAtOffsetList())
                     topSource = std::max<int32_t>(topSource, entry.offset() + entry.byteSize());
                 Checked<int32_t> topSourceOffsetFromFP = static_cast<int32_t>(roundUpToMultipleOf<stackAlignmentBytes()>(topSource));
-                emitRestoreInstanceFrameIfNeeded(jit, GPRInfo::wasmContextInstancePointer, callerStackSize, params.code().frameSize(), topSourceOffsetFromFP, GPRInfo::wasmBaseMemoryPointer, scratch2);
+                emitRestoreInstanceFrameIfNeeded(jit, GPRInfo::wasmContextInstancePointer, callerStackSize, params.code().frameSize(), topSourceOffsetFromFP, GPRInfo::wasmBaseMemoryPointer, end, pairDest0, pairDest1);
                 jit.move(calleeInstanceGPR, GPRInfo::wasmContextInstancePointer);
                 jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
                 jit.cageConditionally(Gigacage::Primitive, GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister, calleeInstanceGPR);
@@ -6519,12 +6523,10 @@ auto OMGIRGenerator::emitDirectCall(unsigned callProfileIndex, FunctionSpaceInde
             // We pessimistically assume we could be calling to something that is bounds checking.
             // FIXME: We shouldn't have to do this: https://bugs.webkit.org/show_bug.cgi?id=172181
             patchpoint->clobberLate(RegisterSet::wasmPinnedRegisters());
-            // emitRestoreInstanceFrameIfNeeded needs two scratches. wasmBaseMemoryPointer is
-            // always pinned so B3 won't allocate it. wasmBoundsCheckingSizeRegister
-            // is only pinned in BoundsChecking mode, so in Signaling mode we need B3 to give us a
-            // scratch that avoids the inputs.
-            if (isTailCallRootCaller && m_mode == MemoryMode::Signaling)
-                patchpoint->numGPScratchRegisters = 1;
+            // wasmBaseMemoryPointer is always pinned. wasmBoundsCheckingSizeRegister is only
+            // pinned in BoundsChecking, so Signaling needs B3 scratches for the end and both pair dests.
+            if (isTailCallRootCaller)
+                patchpoint->numGPScratchRegisters = m_mode == MemoryMode::Signaling ? 3 : 2;
             patchArgsIndex += m_proc.resultCount(patchpoint->type());
             patchpoint->setGenerator([this, patchArgsIndex, handle, isTailCallRootCaller, tailCallStackOffsetFromFP, prepareForCall, signature = Ref<const RTT>(signature), wasmCalleeInfo, callerStackSize = static_cast<int32_t>(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(wasmCallerInfoAsCallee.headerAndArgumentStackSizeInBytes)), mode = m_mode](CCallHelpers& jit, const B3::StackmapGenerationParams& params) {
                 AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -6537,8 +6539,15 @@ auto OMGIRGenerator::emitDirectCall(unsigned callProfileIndex, FunctionSpaceInde
                     for (const auto& entry : params.code().calleeSaveRegisterAtOffsetList())
                         topSource = std::max<int32_t>(topSource, entry.offset() + entry.byteSize());
                     Checked<int32_t> topSourceOffsetFromFP = static_cast<int32_t>(roundUpToMultipleOf<stackAlignmentBytes()>(topSource));
-                    GPRReg scratch2 = mode == MemoryMode::Signaling ? params.gpScratch(0) : GPRInfo::wasmBoundsCheckingSizeRegister;
-                    emitRestoreInstanceFrameIfNeeded(jit, GPRInfo::wasmContextInstancePointer, callerStackSize, params.code().frameSize(), topSourceOffsetFromFP, GPRInfo::wasmBaseMemoryPointer, scratch2);
+                    unsigned destScratch = 0;
+                    GPRReg end = GPRInfo::wasmBoundsCheckingSizeRegister;
+                    if (mode == MemoryMode::Signaling) {
+                        end = params.gpScratch(0);
+                        destScratch = 1;
+                    }
+                    GPRReg pairDest0 = params.gpScratch(destScratch);
+                    GPRReg pairDest1 = params.gpScratch(destScratch + 1);
+                    emitRestoreInstanceFrameIfNeeded(jit, GPRInfo::wasmContextInstancePointer, callerStackSize, params.code().frameSize(), topSourceOffsetFromFP, GPRInfo::wasmBaseMemoryPointer, end, pairDest0, pairDest1);
                     // Import stub sets up the pinned registers for us so we don't have to do anything here.
                 }
                 if (prepareForCall)

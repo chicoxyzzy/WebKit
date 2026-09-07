@@ -4487,6 +4487,7 @@ void BBQJIT::emitTailCall(FunctionSpaceIndex functionIndexSpace, const RTT& sign
     // Save the old Frame Pointer for later and make sure the return address gets saved to its canonical location.
     emitRestoreCalleeSaves();
     auto preserved = callingConvention.argumentGPRs();
+    preserved.add(wasmScratchGPR, IgnoreVectors);
     if constexpr (isARM64E())
         preserved.add(callingConvention.prologueScratchGPRs[0], IgnoreVectors);
     ScratchScope<1, 0> scratches(*this, WTF::move(preserved));
@@ -4509,7 +4510,7 @@ void BBQJIT::emitTailCall(FunctionSpaceIndex functionIndexSpace, const RTT& sign
         m_jit.loadPtr(Address(GPRInfo::wasmContextInstancePointer, targetInstOffset), wasmScratchGPR);
 
         // We can trash wasmBaseMemoryPointer and wasmBoundsCheckingSizeRegister since we won't use them during argument setup and we'll restore them for our callee anyway.
-        emitRestoreInstanceFrameIfNeeded(m_jit, GPRInfo::wasmContextInstancePointer, callerStackSize, m_frameSize, topSourceOffsetFromFP, wasmScratchGPR, wasmBaseMemoryPointer);
+        emitRestoreInstanceFrameIfNeeded(m_jit, GPRInfo::wasmContextInstancePointer, callerStackSize, m_frameSize, topSourceOffsetFromFP, wasmScratchGPR, wasmBaseMemoryPointer, wasmBoundsCheckingSizeRegister, callerFramePointer);
     }
 
 #if CPU(X86_64)
@@ -4747,20 +4748,42 @@ void BBQJIT::emitIndirectTailCall(const char* opcode, const Value& callee, GPRRe
 
     emitRestoreCalleeSaves();
 
+#if CPU(ARM64)
+    auto restoreFramePreserved = callingConvention.argumentGPRs();
+    restoreFramePreserved.add(importableFunction, IgnoreVectors);
+    restoreFramePreserved.add(wasmScratchGPR, IgnoreVectors);
+    if constexpr (isARM64E())
+        restoreFramePreserved.add(callingConvention.prologueScratchGPRs[0], IgnoreVectors);
+    ScratchScope<1, 0> restoreFrameScratches(*this, WTF::move(restoreFramePreserved));
+    GPRReg callerFramePointer = restoreFrameScratches.gpr(0);
+    restoreFrameScratches.unbindPreserved();
+#endif
+
     {
-        int32_t topSource = -static_cast<int32_t>(m_frameSize);
-        for (unsigned i = 0; i < arguments.size(); i++) {
-            if (!arguments[i].value().isConst()) {
-                Location loc = locationOf(arguments[i]);
-                if (loc.isStack())
-                    topSource = std::max(topSource, loc.asStackOffset() + static_cast<int32_t>(sizeof(Register)));
+        auto computeTopSourceOffsetFromFP = [&] {
+            int32_t topSource = -static_cast<int32_t>(m_frameSize);
+            for (unsigned i = 0; i < arguments.size(); i++) {
+                if (!arguments[i].value().isConst()) {
+                    Location loc = locationOf(arguments[i]);
+                    if (loc.isStack())
+                        topSource = std::max(topSource, loc.asStackOffset() + static_cast<int32_t>(sizeof(Register)));
+                }
             }
-        }
-        Checked<int32_t> topSourceOffsetFromFP = static_cast<int32_t>(roundUpToMultipleOf<stackAlignmentBytes()>(topSource));
+            return static_cast<int32_t>(roundUpToMultipleOf<stackAlignmentBytes()>(topSource));
+        };
 
         m_jit.loadPtr(CCallHelpers::Address(importableFunction, WasmToWasmImportableFunction::offsetOfTargetInstance()), wasmScratchGPR);
         Jump isSameInstance = m_jit.branchPtr(RelationalCondition::Equal, wasmScratchGPR, GPRInfo::wasmContextInstancePointer);
-        emitRestoreInstanceFrameIfNeeded(m_jit, GPRInfo::wasmContextInstancePointer, callerStackSize, m_frameSize, topSourceOffsetFromFP, wasmScratchGPR, wasmBaseMemoryPointer);
+#if CPU(ARM64)
+        emitRestoreInstanceFrameIfNeeded(m_jit, GPRInfo::wasmContextInstancePointer, callerStackSize, m_frameSize, computeTopSourceOffsetFromFP(), wasmScratchGPR, wasmBaseMemoryPointer, wasmBoundsCheckingSizeRegister, callerFramePointer);
+#else
+        {
+            RegisterSet pairPreserved;
+            pairPreserved.add(importableFunction, IgnoreVectors);
+            ScratchScope<1, 0> pairDest(*this, WTF::move(pairPreserved));
+            emitRestoreInstanceFrameIfNeeded(m_jit, GPRInfo::wasmContextInstancePointer, callerStackSize, m_frameSize, computeTopSourceOffsetFromFP(), wasmScratchGPR, wasmBaseMemoryPointer, wasmBoundsCheckingSizeRegister, pairDest.gpr(0));
+        }
+#endif
         m_jit.loadPtr(CCallHelpers::Address(importableFunction, WasmToWasmImportableFunction::offsetOfTargetInstance()), GPRInfo::wasmContextInstancePointer);
         loadWebAssemblyGlobalState(wasmBaseMemoryPointer, wasmBoundsCheckingSizeRegister);
         isSameInstance.link(m_jit);
@@ -4788,13 +4811,6 @@ void BBQJIT::emitIndirectTailCall(const char* opcode, const Value& callee, GPRRe
     resolvedArguments.append(Value::pinned(pointerType(), Location::fromStack(sizeof(Register))));
     parameterLocations.append(Location::fromStack(tailCallStackOffsetFromFP + Checked<int>(sizeof(Register))));
 #elif CPU(ARM64)
-    auto preserved = callingConvention.argumentGPRs();
-    preserved.add(importableFunction, IgnoreVectors);
-    if constexpr (isARM64E())
-        preserved.add(callingConvention.prologueScratchGPRs[0], IgnoreVectors);
-    ScratchScope<1, 0> scratches(*this, WTF::move(preserved));
-    GPRReg callerFramePointer = scratches.gpr(0);
-    scratches.unbindPreserved();
     m_jit.loadPairPtr(MacroAssembler::framePointerRegister, callerFramePointer, MacroAssembler::linkRegister);
 #else
     UNREACHABLE_FOR_PLATFORM();
