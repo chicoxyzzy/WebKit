@@ -121,22 +121,6 @@ RefPtr<RTT> RTT::tryCreateArray(const RTT& supertype, bool isFinalType, RTTArray
     return adoptRef(new (NotNull, memory) RTT(RTTKind::Array, supertype, isFinalType, /*fieldCount*/ 0, WTF::move(payload)));
 }
 
-bool RTT::isSubRTT(const RTT& parent) const
-{
-    if (this == &parent)
-        return true;
-    if (displaySizeExcludingThis() < parent.displaySizeExcludingThis())
-        return false;
-    return &parent == displayEntry(parent.displaySizeExcludingThis());
-}
-
-bool RTT::isStrictSubRTT(const RTT& parent) const
-{
-    if (displaySizeExcludingThis() <= parent.displaySizeExcludingThis())
-        return false;
-    return &parent == displayEntry(parent.displaySizeExcludingThis());
-}
-
 String RTT::toString() const
 {
     return WTF::toString(*this);

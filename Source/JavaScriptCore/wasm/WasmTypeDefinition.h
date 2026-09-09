@@ -852,8 +852,26 @@ public:
         return static_cast<uint64_t>(ptr | (maskedFieldIndex & 0b1111) | (static_cast<uint64_t>(maskedFieldIndex >> 4) << 48));
     }
 
-    bool NODELETE isSubRTT(const RTT& other) const;
-    bool NODELETE isStrictSubRTT(const RTT& other) const;
+    bool isSubRTT(const RTT& parent) const
+    {
+        if (this == &parent)
+            return true;
+        if (parent.isFinalType())
+            return false;
+        if (displaySizeExcludingThis() < parent.displaySizeExcludingThis())
+            return false;
+        return &parent == displayEntry(parent.displaySizeExcludingThis());
+    }
+
+    bool isStrictSubRTT(const RTT& parent) const
+    {
+        if (parent.isFinalType())
+            return false;
+        if (displaySizeExcludingThis() <= parent.displaySizeExcludingThis())
+            return false;
+        return &parent == displayEntry(parent.displaySizeExcludingThis());
+    }
+
     bool isFinalType() const { return m_isFinalType; }
 
     // Print this RTT for debugging.
