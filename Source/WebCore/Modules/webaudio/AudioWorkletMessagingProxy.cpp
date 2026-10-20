@@ -83,9 +83,20 @@ AudioWorkletMessagingProxy::AudioWorkletMessagingProxy(AudioWorklet& worklet)
     m_workletThread->start();
 }
 
+void AudioWorkletMessagingProxy::stopThread()
+{
+    ASSERT(isMainThread());
+    if (m_askedToTerminate)
+        return;
+    m_askedToTerminate = true;
+    if (RefPtr worklet = m_worklet)
+        worklet->releaseProcessors();
+    m_workletThread->stop();
+}
+
 AudioWorkletMessagingProxy::~AudioWorkletMessagingProxy()
 {
-    m_workletThread->stop();
+    stopThread();
     m_workletThread->clearProxies();
 }
 

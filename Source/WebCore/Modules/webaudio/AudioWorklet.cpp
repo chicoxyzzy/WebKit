@@ -43,6 +43,8 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioWorklet);
 
+AudioWorklet::~AudioWorklet() = default;
+
 Ref<AudioWorklet> AudioWorklet::create(BaseAudioContext& audioContext)
 {
     auto worklet = adoptRef(*new AudioWorklet(audioContext));
@@ -73,6 +75,34 @@ AudioWorkletMessagingProxy* AudioWorklet::proxy() const
 BaseAudioContext* AudioWorklet::audioContext() const
 {
     return m_audioContext.get();
+}
+
+void AudioWorklet::addNode(AudioWorkletNode& node)
+{
+    m_nodes.append(static_cast<AudioNode*>(&node));
+}
+
+void AudioWorklet::removeNode(AudioWorkletNode& node)
+{
+    m_nodes.removeFirst(static_cast<AudioNode*>(&node));
+}
+
+void AudioWorklet::releaseProcessors()
+{
+    RefPtr proxy = this->proxy();
+    if (!proxy)
+        return;
+
+    for (CheckedPtr<AudioNode>& node : m_nodes) {
+        if (!node)
+            continue;
+        RefPtr processor = downcast<AudioWorkletNode>(*node).releaseProcessorForThreadShutdown();
+        if (!processor)
+            continue;
+        proxy->postTaskForModeToWorkletGlobalScope([processor = WTF::move(processor)](ScriptExecutionContext& context) mutable {
+            downcast<AudioWorkletGlobalScope>(context).processorIsNoLongerNeeded(*processor);
+        }, WorkerRunLoop::defaultMode());
+    }
 }
 
 void AudioWorklet::createProcessor(const String& name, TransferredMessagePort port, Ref<SerializedScriptValue>&& options, AudioWorkletNode& node)
